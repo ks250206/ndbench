@@ -1,6 +1,10 @@
 # Rust
 /target/
 
+# SwiftPM
+/.build/
+/swift/.build/
+
 # Benchmark output
 /results/
 

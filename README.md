@@ -1,6 +1,6 @@
 # ndbench
 
-`ndarray`、`faer`、`nalgebra`、`candle-core`、Burn、raw Rust、NumPy、PyTorch、raw Python の同じ倍精度計算を、同じ決定的な入力で比較するベンチマークです。Rust 側は CPU 6 バックエンド、Python 側は `python/` 内の独立した `uv` プロジェクトで CPU 3 バックエンドを実行します。
+`ndarray`、`faer`、`nalgebra`、`candle-core`、Burn、raw Rust、NumPy、PyTorch、raw Python、Julia、Go/Gonum、Mojo raw、Node.js/TypeScript、Swift の同じ倍精度計算を、同じ決定的な入力で比較するベンチマークです。Rust 側は CPU 6 バックエンド、Python 側は `python/` 内の独立した `uv` プロジェクト、その他の言語はそれぞれ独立したサブプロジェクトで実行します。
 
 ## 対象の計算
 
@@ -40,6 +40,10 @@ cargo clippy --all-targets -- -D warnings
 
 ./scripts/benchmark.sh
 ./scripts/memory.sh
+
+# Rust、Python、Julia、Go、Mojo、Node.js、Swiftをまとめて実行
+./scripts/benchmark-all.sh
+./scripts/memory-all.sh
 ```
 
 直接実行する場合は次のようにします。
@@ -82,6 +86,18 @@ uv run python ndbench.py \
   --backend raw --op matmul --size 256 --iterations 1
 ```
 
+追加言語の個別プロジェクトは次のコマンドで実行できます。詳細な依存関係と各バックエンドの説明は各ディレクトリのREADMEにあります。
+
+```sh
+./julia/benchmark.sh       # Julia + LinearAlgebra
+./go/benchmark.sh          # Go + Gonum
+./mojo/benchmark.sh        # Mojo raw CPU baseline (uvでSDKを解決)
+./js/benchmark.sh          # TypeScript -> Node.js、raw / ml-matrix
+./swift/benchmark.sh       # Swift + Accelerate (macOS)
+```
+
+各プロジェクトの `memory.sh` は同じ演算について `/usr/bin/time` のピークRSSを `results/memory.tsv` に書き出します。Mojoは `uv sync --project mojo --locked` でSDKをプロジェクト内に解決します。SwiftはmacOSの`Accelerate.framework`を使用します。
+
 ## 実測結果
 
 以下はこの checkout の macOS arm64 / Apple M4 Max で取得したスナップショットです。Rust と Python ともに `HYPERFINE_RUNS=5`、warmup 2、`vector2`/`vector3` は 10,000 反復、`cosine1024` は 1,000 反復、それ以外は各スクリプトの既定サイズ・反復回数を使いました。Rust は `ndarray-eigh-openblas-static` でビルドし、OpenBLAS、OpenMP、Candle/Burn/Rayon、PyTorch のスレッド数を 1 に固定しています。raw Pythonの`matmul`と`eigh`は処理時間が大きいため、同じ条件で計測した値をそのまま掲載しています。
@@ -94,18 +110,49 @@ uv run python ndbench.py \
 uv run --project python python scripts/plot_results.py
 ```
 
-### Rust CPU speed
+### CPU speed
 
-| operation | ndarray | faer | nalgebra | candle | burn | raw |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| vector2 | 5.512 | 5.258 | 4.958 | 19.908 | 22.345 | 7.332 |
-| vector3 | 9.182 | 7.558 | 7.943 | 35.899 | 49.061 | 7.696 |
-| affine2 | 8.628 | 13.201 | 10.322 | 7.906 | 9.541 | 8.925 |
-| affine3 | 10.380 | 16.800 | 15.253 | 11.251 | 11.917 | 12.977 |
-| matvec | 11.357 | 8.881 | 7.976 | 8.790 | 11.350 | 8.877 |
-| matmul | 11.632 | 12.623 | 11.283 | 11.264 | 15.269 | 62.239 |
-| cosine1024 | 6.598 | 7.862 | 11.348 | 13.794 | 12.198 | 9.963 |
-| eigh | 18.634 | 14.046 | 13.882 | — | — | 157.094 |
+全言語・全実装を1つの表にまとめています。hyperfine中央値（ms、低いほど高速）です。🥇🥈🥉は各演算の1〜3位です。同値の場合は表の上から順に順位を付けています。`eigh` の Candle/Burn は未対応のため`—`です。
+
+| backend | vector2 | vector3 | affine2 | affine3 | matvec | matmul | cosine1024 | eigh |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Rust / ndarray | 5.512 | 9.182 | 🥈 8.628 | 🥇 10.380 | 11.357 | 11.632 | 🥈 6.598 | 18.634 |
+| Rust / faer | 🥉 5.258 | 🥉 7.558 | 13.201 | 16.800 | 8.881 | 12.623 | 7.862 | 🥉 14.046 |
+| Rust / nalgebra | 🥈 4.958 | 7.943 | 10.322 | 15.253 | 🥉 7.976 | 🥉 11.283 | 11.348 | 🥈 13.882 |
+| Rust / Candle | 19.908 | 35.899 | 🥇 7.906 | 🥉 11.251 | 8.790 | 🥈 11.264 | 13.794 | — |
+| Rust / Burn | 22.345 | 49.061 | 9.541 | 11.917 | 11.350 | 15.269 | 12.198 | — |
+| Rust / raw | 7.332 | 7.696 | 🥉 8.925 | 12.977 | 8.877 | 62.239 | 9.963 | 157.094 |
+| Python / NumPy | 164.196 | 152.691 | 163.862 | 153.545 | 159.553 | 142.224 | 134.982 | 158.606 |
+| Python / PyTorch | 1017.318 | 1119.784 | 988.969 | 973.967 | 1031.677 | 953.408 | 1015.981 | 1034.778 |
+| Python / raw | 66.928 | 70.451 | 339.420 | 496.722 | 163.439 | 3870.862 | 113.245 | 10431.291 |
+| Julia | 698.779 | 712.581 | 717.703 | 728.751 | 704.220 | 689.520 | 700.773 | 706.839 |
+| Go / Gonum | 🥇 3.633 | 🥇 3.729 | 9.008 | 🥈 11.111 | 🥈 6.545 | 30.574 | 🥇 5.426 | 24.584 |
+| Mojo raw | 9.354 | 12.549 | 14.716 | 20.814 | 12.149 | 77.812 | 10.387 | 146.502 |
+| Node.js / raw | 41.437 | 37.360 | 52.612 | 62.372 | 51.078 | 131.677 | 45.617 | 197.911 |
+| Node.js / ml-matrix | 38.085 | 37.287 | 58.964 | 57.351 | 45.010 | 110.959 | 45.022 | 81.725 |
+| Swift / Accelerate | 7.423 | 🥈 6.275 | 9.983 | 12.661 | 🥇 6.227 | 🥇 6.375 | 🥉 6.644 | 🥇 9.488 |
+
+#### CPU speed 合計ランキング（`eigh`除外）
+
+`vector2`、`vector3`、`affine2`、`affine3`、`matvec`、`matmul`、`cosine1024`の7演算について、各hyperfine中央値を合計し、`total_ms ASC`（合計が小さい順）で並べています。したがって、この表の上位ほど高速です。
+
+| rank | backend | total median (ms) |
+| ---: | --- | ---: |
+| 1 | Swift / Accelerate | 55.587 |
+| 2 | Rust / ndarray | 63.289 |
+| 3 | Rust / nalgebra | 69.083 |
+| 4 | Go / Gonum | 70.028 |
+| 5 | Rust / faer | 72.183 |
+| 6 | Rust / Candle | 108.812 |
+| 7 | Rust / raw | 118.008 |
+| 8 | Rust / Burn | 131.682 |
+| 9 | Mojo raw | 157.781 |
+| 10 | Node.js / ml-matrix | 392.677 |
+| 11 | Node.js / raw | 422.151 |
+| 12 | Python / NumPy | 1071.054 |
+| 13 | Julia | 4952.326 |
+| 14 | Python / raw | 5121.068 |
+| 15 | Python / PyTorch | 7101.104 |
 
 Rust speed chart の系列は `ndarray`, `faer`, `nalgebra`, `Candle`, `Burn`, `raw Rust` です。
 
@@ -115,19 +162,6 @@ Rust speed chart の系列は `ndarray`, `faer`, `nalgebra`, `Candle`, `Burn`, `
 
 ![Rust eigh grouped bar chart](docs/benchmarks/rust-eigh.png)
 
-### Python CPU speed
-
-| operation | NumPy | PyTorch | raw Python |
-| --- | ---: | ---: | ---: |
-| vector2 | 164.196 | 1017.318 | 66.928 |
-| vector3 | 152.691 | 1119.784 | 70.451 |
-| affine2 | 163.862 | 988.969 | 339.420 |
-| affine3 | 153.545 | 973.967 | 496.722 |
-| matvec | 159.553 | 1031.677 | 163.439 |
-| matmul | 142.224 | 953.408 | 3870.862 |
-| cosine1024 | 134.982 | 1015.981 | 113.245 |
-| eigh | 158.606 | 1034.778 | 10431.291 |
-
 Python speed chart の系列は `NumPy` と `PyTorch` です。Python 側の解説と再現手順は [python/README.md](python/README.md) にもまとめています。
 
 ![Python CPU speed grouped bar chart](docs/benchmarks/python-speed.png)
@@ -136,20 +170,63 @@ raw Pythonはライブラリ版と桁が異なるため、別スケールで示�
 
 ![Raw Python speed grouped bar chart](docs/benchmarks/python-raw-speed.png)
 
+追加言語のチャートも個別スケールで示します。特にJuliaとNode.jsは起動時間の影響を受けるため、インプロセスのカーネル速度とは分けて読みます。
+
+![Julia CPU speed grouped bar chart](docs/benchmarks/julia-speed.png)
+
+![Go CPU speed grouped bar chart](docs/benchmarks/go-speed.png)
+
+![Mojo raw CPU speed grouped bar chart](docs/benchmarks/mojo-speed.png)
+
+![Node.js / TypeScript CPU speed grouped bar chart](docs/benchmarks/js-speed.png)
+
+![Swift CPU speed grouped bar chart](docs/benchmarks/swift-speed.png)
+
 ### Peak RSS
 
 ピーク RSS は macOS の `/usr/bin/time -l` で測った値です。論理配列サイズや GPU メモリ使用量ではありません。単位は MiB です。raw backendはライブラリの初期化を行わないため、プロセス単位のRSSでは有利に見える場合があります。
 
-| operation | Rust ndarray | Rust faer | Rust nalgebra | Rust candle | Rust burn | Rust raw | Python NumPy | Python PyTorch | Python raw |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| vector2 | 2.203 | 2.250 | 2.109 | 2.562 | 3.094 | 2.109 | 32.141 | 203.609 | 26.703 |
-| vector3 | 2.203 | 2.219 | 2.109 | 2.672 | 3.312 | 2.109 | 32.312 | 204.469 | 26.688 |
-| affine2 | 6.891 | 14.578 | 6.781 | 7.062 | 12.109 | 6.766 | 39.953 | 212.188 | 41.609 |
-| affine3 | 8.453 | 14.625 | 8.312 | 8.594 | 15.203 | 8.297 | 41.812 | 214.906 | 49.328 |
-| matvec | 4.266 | 4.266 | 4.172 | 4.469 | 7.141 | 4.156 | 38.422 | 210.500 | 31.766 |
-| matmul | 4.375 | 4.469 | 4.328 | 4.719 | 6.109 | 3.656 | 34.438 | 206.484 | 29.031 |
-| cosine1024 | 2.188 | 2.234 | 2.188 | 2.500 | 2.828 | 2.141 | 32.156 | 205.109 | 26.734 |
-| eigh | 2.688 | 3.188 | 2.562 | — | — | 2.547 | 32.953 | 205.609 | 26.734 |
+ピークRSS（MiB、低いほど省メモリ）も全言語・全実装を1つの表にまとめています。🥇🥈🥉は各演算の1〜3位です。同値の場合は表の上から順に順位を付けています。
+
+| backend | vector2 | vector3 | affine2 | affine3 | matvec | matmul | cosine1024 | eigh |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Rust / ndarray | 🥉 2.203 | 🥉 2.203 | 🥉 6.891 | 🥉 8.453 | 🥉 4.266 | 🥉 4.375 | 🥈 2.188 | 🥉 2.688 |
+| Rust / faer | 2.250 | 2.219 | 14.578 | 14.625 | 4.266 | 4.469 | 2.234 | 3.188 |
+| Rust / nalgebra | 🥇 2.109 | 🥇 2.109 | 🥈 6.781 | 🥈 8.312 | 🥈 4.172 | 🥈 4.328 | 🥉 2.188 | 🥈 2.562 |
+| Rust / Candle | 2.562 | 2.672 | 7.062 | 8.594 | 4.469 | 4.719 | 2.500 | — |
+| Rust / Burn | 3.094 | 3.312 | 12.109 | 15.203 | 7.141 | 6.109 | 2.828 | — |
+| Rust / raw | 🥈 2.109 | 🥈 2.109 | 🥇 6.766 | 🥇 8.297 | 🥇 4.156 | 🥇 3.656 | 🥇 2.141 | 🥇 2.547 |
+| Python / NumPy | 32.141 | 32.312 | 39.953 | 41.812 | 38.422 | 34.438 | 32.156 | 32.953 |
+| Python / PyTorch | 203.609 | 204.469 | 212.188 | 214.906 | 210.500 | 206.484 | 205.109 | 205.609 |
+| Python / raw | 26.703 | 26.688 | 41.609 | 49.328 | 31.766 | 29.031 | 26.734 | 26.734 |
+| Julia | 286.594 | 285.219 | 290.625 | 291.469 | 286.844 | 288.188 | 284.359 | 286.969 |
+| Go / Gonum | 3.969 | 3.984 | 9.375 | 10.953 | 6.109 | 5.688 | 4.031 | 4.547 |
+| Mojo raw | 12.250 | 12.234 | 21.641 | 22.906 | 16.547 | 14.438 | 12.375 | 12.859 |
+| Node.js / raw | 54.922 | 55.281 | 61.391 | 62.734 | 56.797 | 57.453 | 55.734 | 57.859 |
+| Node.js / ml-matrix | 54.547 | 55.156 | 63.375 | 65.625 | 59.781 | 60.047 | 56.047 | 59.875 |
+| Swift / Accelerate | 6.922 | 6.922 | 11.547 | 13.047 | 8.984 | 8.500 | 6.891 | 7.656 |
+
+#### Peak RSS 合計ランキング（`eigh`除外）
+
+同じ7演算について、各プロセスのPeak RSSを合計し、`total_rss_mib ASC`（合計が小さい順）で並べています。Peak RSSは演算ごとの別プロセスのピーク値なので、この合計は集計用の指標であり、同時実行時のメモリ消費量ではありません。
+
+| rank | backend | total peak RSS (MiB) |
+| ---: | --- | ---: |
+| 1 | Rust / raw | 29.234 |
+| 2 | Rust / nalgebra | 29.999 |
+| 3 | Rust / ndarray | 30.579 |
+| 4 | Rust / Candle | 32.578 |
+| 5 | Go / Gonum | 44.109 |
+| 6 | Rust / faer | 44.641 |
+| 7 | Rust / Burn | 49.796 |
+| 8 | Swift / Accelerate | 62.813 |
+| 9 | Mojo raw | 112.391 |
+| 10 | Python / raw | 231.859 |
+| 11 | Python / NumPy | 251.234 |
+| 12 | Node.js / raw | 404.312 |
+| 13 | Node.js / ml-matrix | 414.578 |
+| 14 | Python / PyTorch | 1457.265 |
+| 15 | Julia | 2013.298 |
 
 RustのRSSグラフは`eigh`を含む8演算です。Candle/Burnの`eigh`は未対応のため、その棒だけありません。
 
@@ -157,12 +234,23 @@ RustのRSSグラフは`eigh`を含む8演算です。Candle/Burnの`eigh`は未�
 
 ![Python peak RSS grouped bar chart](docs/benchmarks/python-rss.png)
 
+![Julia peak RSS grouped bar chart](docs/benchmarks/julia-rss.png)
+
+![Go peak RSS grouped bar chart](docs/benchmarks/go-rss.png)
+
+![Mojo raw peak RSS grouped bar chart](docs/benchmarks/mojo-rss.png)
+
+![Node.js / TypeScript peak RSS grouped bar chart](docs/benchmarks/js-rss.png)
+
+![Swift peak RSS grouped bar chart](docs/benchmarks/swift-rss.png)
+
 ### 結果の読み方
 
 - 小さい vector では Python のインタプリタ・Tensor API・scalar extraction、Rust のTensor graph/一時Tensorが支配的になり、単純な固定長型の `nalgebra` が有利です。今回のCPU snapshotではBurnはCandleより遅く、ピークRSSも大きくなりました。
 - `affine2` と `affine3` は入力点数が多いため、Candle/Burnが低次元ベクトルより相対的に近づきます。
 - `cosine1024` は埋め込み用途を想定した追加項目です。Rustでは`nalgebra`、PythonではNumPyがこのsnapshotで最速でしたが、差は環境とBLAS実装に依存します。
 - raw Rust/Pythonは依存ライブラリを使わない代わりに、特にPythonの`matmul`と`eigh`で大きな差が出ます。これはインタプリタのループとJacobi法のコストを含む結果です。
+- 追加言語では、SwiftのAccelerateとGo/Gonumが行列系で比較的低い中央値になりました。JuliaはCLI起動とランタイム初期化のRSS/時間が大きく、Mojo rawは依存なしの明示ループ、Node.jsの`ml-matrix`は行列と固有値分解のライブラリ経路として解釈します。
 - `eigh` はライブラリのコンテナだけでなく、`ndarray-linalg`/OpenBLAS、`faer`、`nalgebra` の分解アルゴリズム差を含む比較です。rawのJacobi法は同じ表に置いていますが、アルゴリズムは別です。
 - checksum は標準出力に出し、計算が捨てられないようにしています。丸め順が違うため、文字列の完全一致ではなく許容誤差で比較します。
 

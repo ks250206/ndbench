@@ -1,0 +1,25 @@
+{
+  "name": "ndbench-js",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node.js/TypeScript CPU baselines for ndbench",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "run": "pnpm build && node dist/ndbench.js",
+    "bench": "./benchmark.sh",
+    "memory": "./memory.sh",
+    "check": "pnpm build && node dist/ndbench.js --backend raw --op eigh --size 8 --iterations 1"
+  },
+  "dependencies": {
+    "ml-matrix": "6.14.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.33.2"
+}

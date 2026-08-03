@@ -52,6 +52,12 @@ BACKEND_LABELS = {
     "raw": "raw Rust",
     "numpy": "NumPy",
     "pytorch": "PyTorch",
+    "gonum": "Gonum",
+    "julia": "Julia",
+    "mojo": "Mojo raw",
+    "raw-js": "raw JavaScript",
+    "ml-matrix": "ml-matrix",
+    "swift": "Swift / Accelerate",
 }
 COLORS = {
     "ndarray": "#4C78A8",
@@ -63,6 +69,21 @@ COLORS = {
     "numpy": "#4C78A8",
     "pytorch": "#E45756",
 }
+COLOR_CYCLE = (
+    "#4C78A8",
+    "#F58518",
+    "#54A24B",
+    "#E45756",
+    "#B279A2",
+    "#FFBF79",
+    "#72B7B2",
+    "#ECA82C",
+    "#AF7AA1",
+)
+
+
+def color_for_backend(backend: str, index: int) -> str:
+    return COLORS.get(backend, COLOR_CYCLE[index % len(COLOR_CYCLE)])
 
 
 def parse_args() -> argparse.Namespace:
@@ -123,6 +144,17 @@ def series_from_rss(
     }
 
 
+def available_backends(
+    values: dict[str, dict[str, float]], operations: Iterable[str]
+) -> list[str]:
+    backends: list[str] = []
+    for operation in operations:
+        for backend in values[operation]:
+            if backend not in backends:
+                backends.append(backend)
+    return backends
+
+
 def finite_values(series: dict[str, list[float | None]]) -> list[float]:
     return [value for values in series.values() for value in values if value is not None]
 
@@ -154,8 +186,8 @@ def plot_grouped_bars(
             positions,
             heights,
             width=bar_width * 0.9,
-            label=(labels or {}).get(backend, BACKEND_LABELS[backend]),
-            color=COLORS[backend],
+            label=(labels or {}).get(backend, BACKEND_LABELS.get(backend, backend)),
+            color=color_for_backend(backend, index),
             edgecolor="#333333",
             linewidth=0.35,
         )
@@ -223,6 +255,57 @@ def main() -> None:
         "milliseconds",
         labels={"raw": "raw Python"},
     )
+
+    language_projects = (
+        ("julia", "Julia", "Julia CPU", {"julia": "Julia"}),
+        ("go", "Go/Gonum", "Go/Gonum CPU", {"gonum": "Go/Gonum"}),
+        ("mojo", "Mojo raw", "Mojo raw CPU", {"mojo": "Mojo raw"}),
+        (
+            "js",
+            "Node.js / TypeScript",
+            "Node.js / TypeScript CPU",
+            {"raw": "raw JavaScript", "ml-matrix": "ml-matrix"},
+        ),
+        ("swift", "Swift / Accelerate", "Swift / Accelerate CPU", {"swift": "Swift / Accelerate"}),
+    )
+    for project, project_label, chart_label, backend_labels in language_projects:
+        project_results = root / project / "results"
+        if not all((project_results / f"{operation}.json").exists() for operation in OPERATIONS):
+            continue
+
+        project_speed = read_speed_results(project_results, OPERATIONS)
+        project_backends = available_backends(project_speed, OPERATIONS)
+        plot_grouped_bars(
+            output_dir / f"{project}-speed.png",
+            f"{chart_label}: median ms (lower is better)",
+            OPERATIONS,
+            series_from_results(project_speed, OPERATIONS, project_backends),
+            "milliseconds",
+            labels=backend_labels,
+        )
+
+        project_memory = project_results / "memory.tsv"
+        if project_memory.exists():
+            project_rss = read_rss_results(project_memory)
+            rss_backends = available_backends(
+                {
+                    operation: {
+                        backend: value
+                        for (backend, current_operation), value in project_rss.items()
+                        if current_operation == operation
+                    }
+                    for operation in OPERATIONS
+                },
+                OPERATIONS,
+            )
+            plot_grouped_bars(
+                output_dir / f"{project}-rss.png",
+                f"{project_label} peak RSS",
+                OPERATIONS,
+                series_from_rss(project_rss, OPERATIONS, rss_backends),
+                "MiB",
+                labels=backend_labels,
+            )
     plot_grouped_bars(
         output_dir / "rust-rss.png",
         "Rust peak RSS",

@@ -1,0 +1,10 @@
+name = "NdbenchJulia"
+uuid = "d3f0b8dd-5a7d-4e2c-8a5a-4a4f1d7d7f40"
+version = "0.1.0"
+
+[deps]
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Printf = "de0858da-6303-5e67-8744-51eddeeeb8d7"
+
+[compat]
+julia = "1.12"
