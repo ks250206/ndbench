@@ -1,0 +1,10 @@
+[project]
+name = "ndbench-python"
+version = "0.1.0"
+description = "NumPy and PyTorch CPU companions for the ndbench Rust benchmark"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "numpy>=2.2,<3",
+    "torch>=2.6,<3",
+]

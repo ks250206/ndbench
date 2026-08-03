@@ -1,0 +1,18 @@
+[package]
+name = "ndbench"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+ndarray-eigh = ["dep:ndarray-linalg"]
+ndarray-eigh-openblas-static = ["ndarray-eigh", "ndarray-linalg/openblas-static"]
+ndarray-eigh-openblas-system = ["ndarray-eigh", "ndarray-linalg/openblas-system"]
+
+[dependencies]
+burn = { version = "0.21.0", default-features = false, features = ["std", "ndarray", "simd"] }
+candle-core = { version = "0.11.0", default-features = false }
+faer = "0.24.4"
+nalgebra = "0.35.0"
+ndarray = "0.17.2"
+ndarray-linalg = { version = "0.18.1", default-features = false, optional = true }

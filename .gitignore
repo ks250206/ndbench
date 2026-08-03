@@ -1,0 +1,24 @@
+# Rust
+/target/
+
+# Benchmark output
+/results/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+ENV/
+
+# Python packaging and coverage output
+*.egg-info/
+build/
+dist/
+.coverage
+.coverage.*
+htmlcov/
