@@ -50,6 +50,7 @@ run_group() {
         commands+=(--command-name candle "${qbin} --backend candle ${common}")
         commands+=(--command-name burn "${qbin} --backend burn ${common}")
     fi
+    commands+=(--command-name raw "${qbin} --backend raw ${common}")
 
     hyperfine \
         --shell=none \
@@ -85,7 +86,8 @@ run_group_without_tensor_eigh() {
         --export-json "${RESULT_DIR}/${operation}.json" \
         --command-name ndarray "${qbin} --backend ndarray ${common}" \
         --command-name faer "${qbin} --backend faer ${common}" \
-        --command-name nalgebra "${qbin} --backend nalgebra ${common}"
+        --command-name nalgebra "${qbin} --backend nalgebra ${common}" \
+        --command-name raw "${qbin} --backend raw ${common}"
 }
 
 run_group_without_tensor_eigh eigh "${EIGH_SIZE}" "${EIGH_ITERATIONS}"

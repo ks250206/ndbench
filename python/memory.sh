@@ -65,7 +65,7 @@ measure() {
     rm -f "${stats_file}"
 }
 
-for backend in numpy pytorch; do
+for backend in numpy pytorch raw; do
     measure "${backend}" vector2 --size 1 --iterations "${VECTOR_ITERATIONS}"
     measure "${backend}" vector3 --size 1 --iterations "${VECTOR_ITERATIONS}"
     measure "${backend}" affine2 --size "${POINTS}" --iterations 1

@@ -47,6 +47,7 @@ run_group() {
     local common="--op ${operation} --size ${size} --iterations ${iterations}"
     local numpy_command="${UV_BIN} run --project ${SCRIPT_DIR} python ${PYTHON_ENTRYPOINT} --backend numpy ${common}"
     local pytorch_command="${UV_BIN} run --project ${SCRIPT_DIR} python ${PYTHON_ENTRYPOINT} --backend pytorch ${common}"
+    local raw_command="${UV_BIN} run --project ${SCRIPT_DIR} python ${PYTHON_ENTRYPOINT} --backend raw ${common}"
 
     # The measured command intentionally includes uv run, Python startup, and
     # deterministic input construction, just as the Rust executable includes
@@ -58,7 +59,8 @@ run_group() {
         --export-markdown "${RESULT_DIR}/${operation}.md" \
         --export-json "${RESULT_DIR}/${operation}.json" \
         --command-name numpy "${numpy_command}" \
-        --command-name pytorch "${pytorch_command}"
+        --command-name pytorch "${pytorch_command}" \
+        --command-name raw "${raw_command}"
 }
 
 run_group vector2 1 "${VECTOR_ITERATIONS}"

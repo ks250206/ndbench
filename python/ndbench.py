@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 from typing import Any
 
 
@@ -72,6 +73,269 @@ def affine_values(dimension: int) -> tuple[float, ...]:
 
 def tiny_term(iteration: int) -> float:
     return (iteration & 7) * 1.0e-12
+
+
+JACOBI_TOLERANCE = 1.0e-12
+
+
+def _raw_vector2(iterations: int) -> float:
+    a = [1.25, -2.5]
+    b = [-0.75, 3.0]
+    checksum = 0.0
+
+    for iteration in range(iterations):
+        summed = [a[0] + b[0], a[1] + b[1]]
+        dot = a[0] * b[0] + a[1] * b[1]
+        norm = math.sqrt(summed[0] * summed[0] + summed[1] * summed[1])
+        checksum += summed[iteration & 1] + dot + norm + tiny_term(iteration)
+
+    return checksum
+
+
+def _raw_vector3(iterations: int) -> float:
+    a = [1.25, -2.5, 0.75]
+    b = [-0.75, 3.0, 1.5]
+    checksum = 0.0
+
+    for iteration in range(iterations):
+        summed = [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+        dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+        norm = math.sqrt(
+            summed[0] * summed[0] + summed[1] * summed[1] + summed[2] * summed[2]
+        )
+        cross = [
+            a[1] * b[2] - a[2] * b[1],
+            a[2] * b[0] - a[0] * b[2],
+            a[0] * b[1] - a[1] * b[0],
+        ]
+        checksum += (
+            summed[iteration % 3]
+            + dot
+            + norm
+            + cross[(iteration + 1) % 3]
+            + tiny_term(iteration)
+        )
+
+    return checksum
+
+
+def _raw_affine(points: int, iterations: int, dimension: int) -> float:
+    homogeneous = dimension + 1
+    transform = list(affine_values(dimension))
+    input_points = [0.0] * (homogeneous * points)
+    for row in range(homogeneous):
+        for column in range(points):
+            input_points[row * points + column] = (
+                1.0 if row == dimension else scalar(column, row, dimension)
+            )
+    checksum = 0.0
+
+    for _ in range(iterations):
+        output = [0.0] * (homogeneous * points)
+        for row in range(homogeneous):
+            for column in range(points):
+                value = 0.0
+                for inner in range(homogeneous):
+                    value += transform[row * homogeneous + inner] * input_points[
+                        inner * points + column
+                    ]
+                output[row * points + column] = value
+        output_sum = 0.0
+        for value in output:
+            output_sum += value
+        checksum += output_sum + output[0] + output[dimension * points + points - 1]
+
+    return checksum
+
+
+def _raw_scalar_matrix(size: int, salt: int) -> list[float]:
+    matrix = [0.0] * (size * size)
+    for row in range(size):
+        for column in range(size):
+            matrix[row * size + column] = scalar(row, column, salt)
+    return matrix
+
+
+def _raw_matvec(size: int, iterations: int) -> float:
+    matrix = _raw_scalar_matrix(size, size)
+    vector = [scalar(row, 0, size + 1) for row in range(size)]
+    checksum = 0.0
+
+    for _ in range(iterations):
+        output = [0.0] * size
+        for row in range(size):
+            value = 0.0
+            for column in range(size):
+                value += matrix[row * size + column] * vector[column]
+            output[row] = value
+        output_sum = 0.0
+        for value in output:
+            output_sum += value
+        checksum += output_sum + output[0]
+
+    return checksum
+
+
+def _raw_matmul(size: int, iterations: int) -> float:
+    left = _raw_scalar_matrix(size, size)
+    right = _raw_scalar_matrix(size, size + 1)
+    checksum = 0.0
+
+    for _ in range(iterations):
+        output = [0.0] * (size * size)
+        for row in range(size):
+            for column in range(size):
+                value = 0.0
+                for inner in range(size):
+                    value += left[row * size + inner] * right[inner * size + column]
+                output[row * size + column] = value
+        output_sum = 0.0
+        for value in output:
+            output_sum += value
+        checksum += output_sum + output[0]
+
+    return checksum
+
+
+def _raw_cosine1024(iterations: int) -> float:
+    a = [embedding_scalar(index, 0) for index in range(COSINE_DIMENSION)]
+    b = [embedding_scalar(index, 1) for index in range(COSINE_DIMENSION)]
+    checksum = 0.0
+
+    for iteration in range(iterations):
+        dot = 0.0
+        norm_a_squared = 0.0
+        norm_b_squared = 0.0
+        for index in range(COSINE_DIMENSION):
+            dot += a[index] * b[index]
+            norm_a_squared += a[index] * a[index]
+            norm_b_squared += b[index] * b[index]
+        similarity = dot / (math.sqrt(norm_a_squared) * math.sqrt(norm_b_squared))
+        checksum += similarity + tiny_term(iteration)
+
+    return checksum
+
+
+def _raw_symmetric_matrix(size: int) -> list[float]:
+    matrix = [0.0] * (size * size)
+    for row in range(size):
+        for column in range(size):
+            if row == column:
+                matrix[row * size + column] = float(size + 2)
+            else:
+                distance = float(abs(row - column))
+                matrix[row * size + column] = (
+                    0.01
+                    * scalar(min(row, column), max(row, column), size)
+                    / (1.0 + distance)
+                )
+    return matrix
+
+
+def _raw_jacobi_eigh(matrix_input: list[float], size: int) -> tuple[list[float], list[float]]:
+    matrix = list(matrix_input)
+    eigenvectors = [0.0] * (size * size)
+    for index in range(size):
+        eigenvectors[index * size + index] = 1.0
+
+    for _ in range(8 * max(size, 1)):
+        max_off_diagonal = 0.0
+        for row in range(size):
+            for column in range(row + 1, size):
+                max_off_diagonal = max(
+                    max_off_diagonal, abs(matrix[row * size + column])
+                )
+        if max_off_diagonal < JACOBI_TOLERANCE:
+            break
+
+        for p in range(size):
+            for q in range(p + 1, size):
+                apq = matrix[p * size + q]
+                if abs(apq) < JACOBI_TOLERANCE:
+                    continue
+
+                app = matrix[p * size + p]
+                aqq = matrix[q * size + q]
+                tau = (aqq - app) / (2.0 * apq)
+                if tau >= 0.0:
+                    t = 1.0 / (tau + math.sqrt(1.0 + tau * tau))
+                else:
+                    t = -1.0 / (-tau + math.sqrt(1.0 + tau * tau))
+                cosine = 1.0 / math.sqrt(1.0 + t * t)
+                sine = t * cosine
+
+                for k in range(size):
+                    if k == p or k == q:
+                        continue
+                    akp = matrix[k * size + p]
+                    akq = matrix[k * size + q]
+                    new_kp = cosine * akp - sine * akq
+                    new_kq = sine * akp + cosine * akq
+                    matrix[k * size + p] = new_kp
+                    matrix[p * size + k] = new_kp
+                    matrix[k * size + q] = new_kq
+                    matrix[q * size + k] = new_kq
+
+                matrix[p * size + p] = (
+                    cosine * cosine * app
+                    - 2.0 * sine * cosine * apq
+                    + sine * sine * aqq
+                )
+                matrix[q * size + q] = (
+                    sine * sine * app
+                    + 2.0 * sine * cosine * apq
+                    + cosine * cosine * aqq
+                )
+                matrix[p * size + q] = 0.0
+                matrix[q * size + p] = 0.0
+
+                for k in range(size):
+                    vkp = eigenvectors[k * size + p]
+                    vkq = eigenvectors[k * size + q]
+                    eigenvectors[k * size + p] = cosine * vkp - sine * vkq
+                    eigenvectors[k * size + q] = sine * vkp + cosine * vkq
+
+    eigenvalues = [matrix[index * size + index] for index in range(size)]
+    return eigenvalues, eigenvectors
+
+
+def _raw_eigh(size: int, iterations: int) -> float:
+    matrix = _raw_symmetric_matrix(size)
+    checksum = 0.0
+
+    for _ in range(iterations):
+        eigenvalues, eigenvectors = _raw_jacobi_eigh(matrix, size)
+        eigenvalue_sum = 0.0
+        for value in eigenvalues:
+            eigenvalue_sum += value
+        eigenvector_norm_squared = 0.0
+        for value in eigenvectors:
+            eigenvector_norm_squared += value * value
+        checksum += eigenvalue_sum + eigenvector_norm_squared
+
+    return checksum
+
+
+def run_raw(operation: str, size: int, iterations: int) -> float:
+    """Run the dependency-free Python baseline using lists and ``math`` only."""
+
+    if operation == "vector2":
+        return _raw_vector2(iterations)
+    if operation == "vector3":
+        return _raw_vector3(iterations)
+    if operation == "affine2":
+        return _raw_affine(size, iterations, 2)
+    if operation == "affine3":
+        return _raw_affine(size, iterations, 3)
+    if operation == "matvec":
+        return _raw_matvec(size, iterations)
+    if operation == "matmul":
+        return _raw_matmul(size, iterations)
+    if operation == "cosine1024":
+        return _raw_cosine1024(iterations)
+    if operation == "eigh":
+        return _raw_eigh(size, iterations)
+    raise ValueError(f"unknown operation: {operation}")
 
 
 def _numpy_scalar_line(np: Any, length: int, j: int, salt: int) -> Any:
@@ -486,8 +750,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--backend",
         required=True,
-        choices=("numpy", "pytorch", "torch"),
-        help="numeric backend (torch is an alias for pytorch)",
+        choices=("numpy", "pytorch", "torch", "raw", "native"),
+        help="numeric backend (torch is an alias for pytorch; native is an alias for raw)",
     )
     parser.add_argument(
         "--op",
@@ -499,7 +763,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--size", type=int, help="point count or square matrix order")
     parser.add_argument("--iterations", type=int, help="number of repeated operations")
     args = parser.parse_args(argv)
-    args.backend = "pytorch" if args.backend == "torch" else args.backend
+    if args.backend == "torch":
+        args.backend = "pytorch"
+    elif args.backend == "native":
+        args.backend = "raw"
     if args.size is None:
         args.size = default_size(args.op)
     if args.iterations is None:
@@ -515,8 +782,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     if args.backend == "numpy":
         checksum = run_numpy(args.op, args.size, args.iterations)
-    else:
+    elif args.backend == "pytorch":
         checksum = run_pytorch(args.op, args.size, args.iterations)
+    else:
+        checksum = run_raw(args.op, args.size, args.iterations)
     print(f"checksum={checksum:.17e}")
     return 0
 

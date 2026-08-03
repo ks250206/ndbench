@@ -1,25 +1,27 @@
 # ndbench
 
-`ndarray`、`faer`、`nalgebra`、`candle-core`、Burn、NumPy、PyTorch の同じ倍精度計算を、同じ決定的な入力で比較するベンチマークです。Rust 側は CPU 5 バックエンド、Python 側は `python/` 内の独立した `uv` プロジェクトで CPU 2 バックエンドを実行します。
+`ndarray`、`faer`、`nalgebra`、`candle-core`、Burn、raw Rust、NumPy、PyTorch、raw Python の同じ倍精度計算を、同じ決定的な入力で比較するベンチマークです。Rust 側は CPU 6 バックエンド、Python 側は `python/` 内の独立した `uv` プロジェクトで CPU 3 バックエンドを実行します。
 
 ## 対象の計算
 
 | operation | 内容 | `--size` の意味 | Rust backend |
 | --- | --- | --- | --- |
-| `vector2` | 2次元ベクトルの加算・内積・L2ノルム | 未使用。`--iterations` で反復 | ndarray / faer / nalgebra / Candle / Burn |
-| `vector3` | 3次元ベクトルの加算・内積・L2ノルム・外積 | 未使用。`--iterations` で反復 | ndarray / faer / nalgebra / Candle / Burn |
-| `affine2` | 3×3同次行列で2次元点群を変換 | 点数 | ndarray / faer / nalgebra / Candle / Burn |
-| `affine3` | 4×4同次行列で3次元点群を変換 | 点数 | ndarray / faer / nalgebra / Candle / Burn |
-| `matvec` | dense square matrix × vector | 行列の次数 | ndarray / faer / nalgebra / Candle / Burn |
-| `matmul` | dense square matrix × matrix | 行列の次数 | ndarray / faer / nalgebra / Candle / Burn |
-| `cosine1024` | 2本の`f64`・1024次元ベクトルのコサイン類似度 | 固定1024。`--iterations` で反復 | ndarray / faer / nalgebra / Candle / Burn |
-| `eigh` | 実対称行列の固有値・固有ベクトルを全て計算 | 行列の次数 | ndarray / faer / nalgebra |
+| `vector2` | 2次元ベクトルの加算・内積・L2ノルム | 未使用。`--iterations` で反復 | ndarray / faer / nalgebra / Candle / Burn / raw |
+| `vector3` | 3次元ベクトルの加算・内積・L2ノルム・外積 | 未使用。`--iterations` で反復 | ndarray / faer / nalgebra / Candle / Burn / raw |
+| `affine2` | 3×3同次行列で2次元点群を変換 | 点数 | ndarray / faer / nalgebra / Candle / Burn / raw |
+| `affine3` | 4×4同次行列で3次元点群を変換 | 点数 | ndarray / faer / nalgebra / Candle / Burn / raw |
+| `matvec` | dense square matrix × vector | 行列の次数 | ndarray / faer / nalgebra / Candle / Burn / raw |
+| `matmul` | dense square matrix × matrix | 行列の次数 | ndarray / faer / nalgebra / Candle / Burn / raw |
+| `cosine1024` | 2本の`f64`・1024次元ベクトルのコサイン類似度 | 固定1024。`--iterations` で反復 | ndarray / faer / nalgebra / Candle / Burn / raw |
+| `eigh` | 実対称行列の固有値・固有ベクトルを全て計算 | 行列の次数 | ndarray / faer / nalgebra / raw |
 
 小さいベクトルでは、ライブラリが提供する型・演算子・Tensor、一時オブジェクトのコストも含めて測ります。行列系では論理上の行列値を揃え、`ndarray` は Fortran order、`faer` と `nalgebra` は column-major、Candle と Burn は通常のTensorを使います。`cosine1024` は埋め込みベクトルを想定し、2本の決定的な`f64`ベクトルを生成して、内積を2本のL2ノルムの積で割ります。
 
 Burnは`burn = 0.21.0`の`burn-ndarray` backendを`NdArray<f64>`として使い、`std`・`ndarray`・`simd`だけを有効にしています。したがって、ここでのBurn結果はCPU Tensor実装の比較です。
 
-`eigh` だけは実装条件が異なります。`faer` と `nalgebra` は各ライブラリの純Rust実装、`ndarray` は `ndarray-linalg` の LAPACK/OpenBLAS backend です。Candle の現行 `candle-core 0.11.0` と Burn 0.21.0 の `burn-ndarray` には汎用の対称行列固有値分解 API がないため、未対応のまま測定対象から除外しています。未対応処理を別のアルゴリズムで置き換えて、Candle/Burnの速度として扱うことはしていません。
+`raw`はRustでは固定長配列と`std::vec::Vec<f64>`、Pythonでは組み込みの`list`と標準ライブラリの`math`だけで計算します。行列積やアフィン変換も明示的な三重ループで実装し、`eigh`は外部LAPACKを使わない同一のJacobi法によるベースラインです。これは実用的な固有値ソルバーの推奨ではなく、依存ライブラリなしの比較用です。
+
+`eigh` だけは実装条件が異なります。`faer` と `nalgebra` は各ライブラリの純Rust実装、`ndarray` は `ndarray-linalg` の LAPACK/OpenBLAS backend です。Candle の現行 `candle-core 0.11.0` と Burn 0.21.0 の `burn-ndarray` には汎用の対称行列固有値分解 APIがないため、未対応のまま測定対象から除外しています。rawはJacobi法を実装していますが、他の固有値ソルバーとアルゴリズムが異なるため、`eigh`のraw結果は別のベースラインとして読みます。
 
 ## 実行方法
 
@@ -52,6 +54,9 @@ cargo build --release --features ndarray-eigh-openblas-static
   --backend burn --op cosine1024 --iterations 1000
 
 ./target/release/ndbench \
+  --backend raw --op matmul --size 256 --iterations 1
+
+./target/release/ndbench \
   --backend ndarray --op eigh --size 128 --iterations 1
 ```
 
@@ -72,121 +77,93 @@ uv run python ndbench.py \
 
 uv run python ndbench.py \
   --backend pytorch --op eigh --size 128 --iterations 1
+
+uv run python ndbench.py \
+  --backend raw --op matmul --size 256 --iterations 1
 ```
 
 ## 実測結果
 
-以下はこの checkout の macOS arm64 / Apple M4 Max で取得したスナップショットです。Rust と Python ともに `HYPERFINE_RUNS=5`、warmup 2、`vector2`/`vector3` は 10,000 反復、`cosine1024` は 1,000 反復、それ以外は各スクリプトの既定サイズ・反復回数を使いました。Rust は `ndarray-eigh-openblas-static` でビルドし、OpenBLAS、OpenMP、Candle/Burn/Rayon、PyTorch のスレッド数を 1 に固定しています。
+以下はこの checkout の macOS arm64 / Apple M4 Max で取得したスナップショットです。Rust と Python ともに `HYPERFINE_RUNS=5`、warmup 2、`vector2`/`vector3` は 10,000 反復、`cosine1024` は 1,000 反復、それ以外は各スクリプトの既定サイズ・反復回数を使いました。Rust は `ndarray-eigh-openblas-static` でビルドし、OpenBLAS、OpenMP、Candle/Burn/Rayon、PyTorch のスレッド数を 1 に固定しています。raw Pythonの`matmul`と`eigh`は処理時間が大きいため、同じ条件で計測した値をそのまま掲載しています。
 
 時間は hyperfine の中央値（ms、低いほど速い）です。プロセス起動と入力生成も含むため、kernel 単体の速度ではありません。結果は CPU・OS・コンパイラ・BLAS 実装で変わります。
 
-比較チャートは、複数の棒系列が同じx位置で重なって見えないよう、名前付きの折れ線系列にしています。凡例でbackendを確認でき、値そのものは直前の表で確認できます。
+比較チャートはMatplotlibで生成したグループ棒グラフです。backendの棒を横並びにし、凡例を付けています。raw Pythonのように値の桁が大きく異なる系列は別画像にしています。画像は次のコマンドで結果JSON/TSVから再生成できます。
+
+```sh
+uv run --project python python scripts/plot_results.py
+```
 
 ### Rust CPU speed
 
-| operation | ndarray | faer | nalgebra | candle | burn |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| vector2 | 8.341 | 8.344 | 7.518 | 18.488 | 21.928 |
-| vector3 | 7.840 | 7.612 | 7.415 | 32.541 | 47.067 |
-| affine2 | 11.507 | 15.035 | 11.494 | 9.746 | 11.274 |
-| affine3 | 11.156 | 15.095 | 13.865 | 8.745 | 11.620 |
-| matvec | 10.400 | 7.721 | 7.697 | 6.842 | 8.921 |
-| matmul | 10.837 | 11.445 | 11.835 | 12.041 | 9.895 |
-| cosine1024 | 7.555 | 8.917 | 6.859 | 11.533 | 9.939 |
-| eigh | 15.742 | 12.802 | 13.141 | — | — |
+| operation | ndarray | faer | nalgebra | candle | burn | raw |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| vector2 | 5.512 | 5.258 | 4.958 | 19.908 | 22.345 | 7.332 |
+| vector3 | 9.182 | 7.558 | 7.943 | 35.899 | 49.061 | 7.696 |
+| affine2 | 8.628 | 13.201 | 10.322 | 7.906 | 9.541 | 8.925 |
+| affine3 | 10.380 | 16.800 | 15.253 | 11.251 | 11.917 | 12.977 |
+| matvec | 11.357 | 8.881 | 7.976 | 8.790 | 11.350 | 8.877 |
+| matmul | 11.632 | 12.623 | 11.283 | 11.264 | 15.269 | 62.239 |
+| cosine1024 | 6.598 | 7.862 | 11.348 | 13.794 | 12.198 | 9.963 |
+| eigh | 18.634 | 14.046 | 13.882 | — | — | 157.094 |
 
-Rust speed chart の系列順は `ndarray`, `faer`, `nalgebra`, `candle`, `burn` です。
+Rust speed chart の系列は `ndarray`, `faer`, `nalgebra`, `Candle`, `Burn`, `raw Rust` です。
 
-```mermaid
-xychart-beta
-    title "Rust CPU speed: median ms (lower is better)"
-    x-axis ["vector2", "vector3", "affine2", "affine3", "matvec", "matmul", "cosine1024"]
-    y-axis "milliseconds" 0 --> 55
-    line "ndarray" [8.341, 7.840, 11.507, 11.156, 10.400, 10.837, 7.555]
-    line "faer" [8.344, 7.612, 15.035, 15.095, 7.721, 11.445, 8.917]
-    line "nalgebra" [7.518, 7.415, 11.494, 13.865, 7.697, 11.835, 6.859]
-    line "candle" [18.488, 32.541, 9.746, 8.745, 6.842, 12.041, 11.533]
-    line "burn" [21.928, 47.067, 11.274, 11.620, 8.921, 9.895, 9.939]
-```
+![Rust CPU speed grouped bar chart](docs/benchmarks/rust-speed.png)
 
-`eigh` は Candle と Burn が未対応なので、対応する3 backendだけを別に示します。
+`eigh` は Candle と Burn が未対応です。rawはJacobi法の別実装なので、同じチャートに4系列で示します。
 
-```mermaid
-xychart-beta
-    title "Rust eigh: median ms (lower is better)"
-    x-axis ["ndarray", "faer", "nalgebra"]
-    y-axis "milliseconds" 0 --> 20
-    bar "median" [15.742, 12.802, 13.141]
-```
+![Rust eigh grouped bar chart](docs/benchmarks/rust-eigh.png)
 
 ### Python CPU speed
 
-| operation | NumPy | PyTorch |
-| --- | ---: | ---: |
-| vector2 | 149.267 | 1063.862 |
-| vector3 | 166.950 | 1142.623 |
-| affine2 | 146.052 | 1040.256 |
-| affine3 | 150.322 | 1041.778 |
-| matvec | 146.186 | 1053.915 |
-| matmul | 145.187 | 1030.073 |
-| cosine1024 | 149.194 | 1032.482 |
-| eigh | 146.630 | 1016.333 |
+| operation | NumPy | PyTorch | raw Python |
+| --- | ---: | ---: | ---: |
+| vector2 | 164.196 | 1017.318 | 66.928 |
+| vector3 | 152.691 | 1119.784 | 70.451 |
+| affine2 | 163.862 | 988.969 | 339.420 |
+| affine3 | 153.545 | 973.967 | 496.722 |
+| matvec | 159.553 | 1031.677 | 163.439 |
+| matmul | 142.224 | 953.408 | 3870.862 |
+| cosine1024 | 134.982 | 1015.981 | 113.245 |
+| eigh | 158.606 | 1034.778 | 10431.291 |
 
-Python speed chart の系列順は `NumPy`, `PyTorch` です。Python 側の解説と再現手順は [python/README.md](python/README.md) にもまとめています。
+Python speed chart の系列は `NumPy` と `PyTorch` です。Python 側の解説と再現手順は [python/README.md](python/README.md) にもまとめています。
 
-```mermaid
-xychart-beta
-    title "Python CPU speed: median ms (lower is better)"
-    x-axis ["vector2", "vector3", "affine2", "affine3", "matvec", "matmul", "cosine1024", "eigh"]
-    y-axis "milliseconds" 0 --> 1200
-    line "NumPy" [149.267, 166.950, 146.052, 150.322, 146.186, 145.187, 149.194, 146.630]
-    line "PyTorch" [1063.862, 1142.623, 1040.256, 1041.778, 1053.915, 1030.073, 1032.482, 1016.333]
-```
+![Python CPU speed grouped bar chart](docs/benchmarks/python-speed.png)
+
+raw Pythonはライブラリ版と桁が異なるため、別スケールで示します。
+
+![Raw Python speed grouped bar chart](docs/benchmarks/python-raw-speed.png)
 
 ### Peak RSS
 
-ピーク RSS は macOS の `/usr/bin/time -l` で測った値です。論理配列サイズや GPU メモリ使用量ではありません。Rust の系列順は `ndarray`, `faer`, `nalgebra`, `candle`, `burn`、Python の系列順は `NumPy`, `PyTorch` です。単位は MiB です。
+ピーク RSS は macOS の `/usr/bin/time -l` で測った値です。論理配列サイズや GPU メモリ使用量ではありません。単位は MiB です。raw backendはライブラリの初期化を行わないため、プロセス単位のRSSでは有利に見える場合があります。
 
-| operation | Rust ndarray | Rust faer | Rust nalgebra | Rust candle | Rust burn | Python NumPy | Python PyTorch |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| vector2 | 2.266 | 2.281 | 2.172 | 2.641 | 3.094 | 31.578 | 203.719 |
-| vector3 | 2.250 | 2.281 | 2.156 | 2.766 | 3.297 | 31.625 | 205.078 |
-| affine2 | 6.969 | 14.609 | 6.828 | 7.094 | 12.109 | 39.469 | 212.391 |
-| affine3 | 8.500 | 14.641 | 8.359 | 8.641 | 15.172 | 40.969 | 216.125 |
-| matvec | 4.328 | 4.312 | 4.219 | 4.484 | 7.141 | 37.719 | 210.906 |
-| matmul | 4.422 | 4.500 | 4.359 | 4.766 | 6.078 | 33.906 | 207.109 |
-| cosine1024 | 2.234 | 2.266 | 2.219 | 2.531 | 2.859 | 31.547 | 203.844 |
-| eigh | 2.781 | 3.297 | 2.625 | — | — | 32.297 | 205.578 |
+| operation | Rust ndarray | Rust faer | Rust nalgebra | Rust candle | Rust burn | Rust raw | Python NumPy | Python PyTorch | Python raw |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| vector2 | 2.203 | 2.250 | 2.109 | 2.562 | 3.094 | 2.109 | 32.141 | 203.609 | 26.703 |
+| vector3 | 2.203 | 2.219 | 2.109 | 2.672 | 3.312 | 2.109 | 32.312 | 204.469 | 26.688 |
+| affine2 | 6.891 | 14.578 | 6.781 | 7.062 | 12.109 | 6.766 | 39.953 | 212.188 | 41.609 |
+| affine3 | 8.453 | 14.625 | 8.312 | 8.594 | 15.203 | 8.297 | 41.812 | 214.906 | 49.328 |
+| matvec | 4.266 | 4.266 | 4.172 | 4.469 | 7.141 | 4.156 | 38.422 | 210.500 | 31.766 |
+| matmul | 4.375 | 4.469 | 4.328 | 4.719 | 6.109 | 3.656 | 34.438 | 206.484 | 29.031 |
+| cosine1024 | 2.188 | 2.234 | 2.188 | 2.500 | 2.828 | 2.141 | 32.156 | 205.109 | 26.734 |
+| eigh | 2.688 | 3.188 | 2.562 | — | — | 2.547 | 32.953 | 205.609 | 26.734 |
 
-Rust の対応7演算をグラフにします。
+RustのRSSグラフは`eigh`を含む8演算です。Candle/Burnの`eigh`は未対応のため、その棒だけありません。
 
-```mermaid
-xychart-beta
-    title "Rust peak RSS (MiB)"
-    x-axis ["vector2", "vector3", "affine2", "affine3", "matvec", "matmul", "cosine1024"]
-    y-axis "MiB" 0 --> 18
-    line "ndarray" [2.266, 2.250, 6.969, 8.500, 4.328, 4.422, 2.234]
-    line "faer" [2.281, 2.281, 14.609, 14.641, 4.312, 4.500, 2.266]
-    line "nalgebra" [2.172, 2.156, 6.828, 8.359, 4.219, 4.359, 2.219]
-    line "candle" [2.641, 2.766, 7.094, 8.641, 4.484, 4.766, 2.531]
-    line "burn" [3.094, 3.297, 12.109, 15.172, 7.141, 6.078, 2.859]
-```
+![Rust peak RSS grouped bar chart](docs/benchmarks/rust-rss.png)
 
-```mermaid
-xychart-beta
-    title "Python peak RSS (MiB)"
-    x-axis ["vector2", "vector3", "affine2", "affine3", "matvec", "matmul", "cosine1024", "eigh"]
-    y-axis "MiB" 0 --> 230
-    line "NumPy" [31.578, 31.625, 39.469, 40.969, 37.719, 33.906, 31.547, 32.297]
-    line "PyTorch" [203.719, 205.078, 212.391, 216.125, 210.906, 207.109, 203.844, 205.578]
-```
+![Python peak RSS grouped bar chart](docs/benchmarks/python-rss.png)
 
 ### 結果の読み方
 
 - 小さい vector では Python のインタプリタ・Tensor API・scalar extraction、Rust のTensor graph/一時Tensorが支配的になり、単純な固定長型の `nalgebra` が有利です。今回のCPU snapshotではBurnはCandleより遅く、ピークRSSも大きくなりました。
 - `affine2` と `affine3` は入力点数が多いため、Candle/Burnが低次元ベクトルより相対的に近づきます。
 - `cosine1024` は埋め込み用途を想定した追加項目です。Rustでは`nalgebra`、PythonではNumPyがこのsnapshotで最速でしたが、差は環境とBLAS実装に依存します。
-- `eigh` はライブラリのコンテナだけでなく、`ndarray-linalg`/OpenBLAS、`faer`、`nalgebra` の分解アルゴリズム差を含む比較です。
+- raw Rust/Pythonは依存ライブラリを使わない代わりに、特にPythonの`matmul`と`eigh`で大きな差が出ます。これはインタプリタのループとJacobi法のコストを含む結果です。
+- `eigh` はライブラリのコンテナだけでなく、`ndarray-linalg`/OpenBLAS、`faer`、`nalgebra` の分解アルゴリズム差を含む比較です。rawのJacobi法は同じ表に置いていますが、アルゴリズムは別です。
 - checksum は標準出力に出し、計算が捨てられないようにしています。丸め順が違うため、文字列の完全一致ではなく許容誤差で比較します。
 
 ## GPU について

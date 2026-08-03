@@ -8,6 +8,7 @@ use nalgebra::{DMatrix, DVector, SymmetricEigen, Vector2, Vector3};
 use ndarray::{Array1, Array2, ShapeBuilder};
 
 mod burn_backend;
+mod raw_backend;
 
 const DEFAULT_VECTOR_ITERATIONS: usize = 1_000_000;
 const DEFAULT_POINT_COUNT: usize = 100_000;
@@ -22,6 +23,7 @@ enum Backend {
     Nalgebra,
     Candle,
     Burn,
+    Raw,
 }
 
 impl Backend {
@@ -32,8 +34,9 @@ impl Backend {
             "nalgebra" => Ok(Self::Nalgebra),
             "candle" => Ok(Self::Candle),
             "burn" => Ok(Self::Burn),
+            "raw" | "native" => Ok(Self::Raw),
             _ => Err(format!(
-                "unknown backend `{value}`; expected ndarray, faer, nalgebra, candle, or burn"
+                "unknown backend `{value}`; expected ndarray, faer, nalgebra, candle, burn, or raw"
             )),
         }
     }
@@ -79,7 +82,7 @@ struct Config {
 
 fn usage() -> &'static str {
     "Usage:
-  ndbench --backend <ndarray|faer|nalgebra|candle|burn> --op <operation> [options]
+  ndbench --backend <ndarray|faer|nalgebra|candle|burn|raw> --op <operation> [options]
 
 Operations:
   vector2, vector3    low-dimensional vector arithmetic repeated --iterations times
@@ -101,6 +104,7 @@ Examples:
   ndbench --backend candle --op matmul --size 256
   ndbench --backend nalgebra --op cosine1024 --iterations 1000
   ndbench --backend burn --op cosine1024 --iterations 1000
+  ndbench --backend raw --op matmul --size 256
 "
 }
 
@@ -197,11 +201,13 @@ fn run() -> Result<(), String> {
         (Backend::Nalgebra, Operation::Vector2) => Ok(nalgebra_vector2(config.iterations)),
         (Backend::Candle, Operation::Vector2) => candle_vector2(config.iterations),
         (Backend::Burn, Operation::Vector2) => burn_backend::vector2(config.iterations),
+        (Backend::Raw, Operation::Vector2) => raw_backend::vector2(config.iterations),
         (Backend::Ndarray, Operation::Vector3) => Ok(ndarray_vector3(config.iterations)),
         (Backend::Faer, Operation::Vector3) => Ok(faer_vector3(config.iterations)),
         (Backend::Nalgebra, Operation::Vector3) => Ok(nalgebra_vector3(config.iterations)),
         (Backend::Candle, Operation::Vector3) => candle_vector3(config.iterations),
         (Backend::Burn, Operation::Vector3) => burn_backend::vector3(config.iterations),
+        (Backend::Raw, Operation::Vector3) => raw_backend::vector3(config.iterations),
         (Backend::Ndarray, Operation::Affine2) => {
             Ok(ndarray_affine2(config.size, config.iterations))
         }
@@ -213,6 +219,7 @@ fn run() -> Result<(), String> {
         (Backend::Burn, Operation::Affine2) => {
             burn_backend::affine2(config.size, config.iterations)
         }
+        (Backend::Raw, Operation::Affine2) => raw_backend::affine2(config.size, config.iterations),
         (Backend::Ndarray, Operation::Affine3) => {
             Ok(ndarray_affine3(config.size, config.iterations))
         }
@@ -224,6 +231,7 @@ fn run() -> Result<(), String> {
         (Backend::Burn, Operation::Affine3) => {
             burn_backend::affine3(config.size, config.iterations)
         }
+        (Backend::Raw, Operation::Affine3) => raw_backend::affine3(config.size, config.iterations),
         (Backend::Ndarray, Operation::MatVec) => Ok(ndarray_matvec(config.size, config.iterations)),
         (Backend::Faer, Operation::MatVec) => Ok(faer_matvec(config.size, config.iterations)),
         (Backend::Nalgebra, Operation::MatVec) => {
@@ -231,6 +239,7 @@ fn run() -> Result<(), String> {
         }
         (Backend::Candle, Operation::MatVec) => candle_matvec(config.size, config.iterations),
         (Backend::Burn, Operation::MatVec) => burn_backend::matvec(config.size, config.iterations),
+        (Backend::Raw, Operation::MatVec) => raw_backend::matvec(config.size, config.iterations),
         (Backend::Ndarray, Operation::MatMul) => Ok(ndarray_matmul(config.size, config.iterations)),
         (Backend::Faer, Operation::MatMul) => Ok(faer_matmul(config.size, config.iterations)),
         (Backend::Nalgebra, Operation::MatMul) => {
@@ -238,16 +247,19 @@ fn run() -> Result<(), String> {
         }
         (Backend::Candle, Operation::MatMul) => candle_matmul(config.size, config.iterations),
         (Backend::Burn, Operation::MatMul) => burn_backend::matmul(config.size, config.iterations),
+        (Backend::Raw, Operation::MatMul) => raw_backend::matmul(config.size, config.iterations),
         (Backend::Ndarray, Operation::Cosine1024) => Ok(ndarray_cosine1024(config.iterations)),
         (Backend::Faer, Operation::Cosine1024) => Ok(faer_cosine1024(config.iterations)),
         (Backend::Nalgebra, Operation::Cosine1024) => Ok(nalgebra_cosine1024(config.iterations)),
         (Backend::Candle, Operation::Cosine1024) => candle_cosine1024(config.iterations),
         (Backend::Burn, Operation::Cosine1024) => burn_backend::cosine1024(config.iterations),
+        (Backend::Raw, Operation::Cosine1024) => raw_backend::cosine1024(config.iterations),
         (Backend::Ndarray, Operation::Eigh) => ndarray_eigh(config.size, config.iterations),
         (Backend::Faer, Operation::Eigh) => faer_eigh(config.size, config.iterations),
         (Backend::Nalgebra, Operation::Eigh) => Ok(nalgebra_eigh(config.size, config.iterations)),
         (Backend::Candle, Operation::Eigh) => candle_eigh(config.size, config.iterations),
         (Backend::Burn, Operation::Eigh) => Err(burn_backend::eigh_error()),
+        (Backend::Raw, Operation::Eigh) => raw_backend::eigh(config.size, config.iterations),
     }?;
 
     println!("checksum={checksum:.17e}");
@@ -911,6 +923,7 @@ mod tests {
             Operation::parse("diagonalize"),
             Ok(Operation::Eigh)
         ));
+        assert!(matches!(Backend::parse("native"), Ok(Backend::Raw)));
     }
 
     #[test]
@@ -921,11 +934,13 @@ mod tests {
             nalgebra_vector2(8),
             candle_vector2(8).unwrap(),
             burn_backend::vector2(8).unwrap(),
+            raw_backend::vector2(8).unwrap(),
             ndarray_vector3(8),
             faer_vector3(8),
             nalgebra_vector3(8),
             candle_vector3(8).unwrap(),
             burn_backend::vector3(8).unwrap(),
+            raw_backend::vector3(8).unwrap(),
         ] {
             assert!(checksum.is_finite());
         }
@@ -934,6 +949,8 @@ mod tests {
         assert_close(candle_vector3(8).unwrap(), ndarray_vector3(8));
         assert_close(burn_backend::vector2(8).unwrap(), ndarray_vector2(8));
         assert_close(burn_backend::vector3(8).unwrap(), ndarray_vector3(8));
+        assert_close(raw_backend::vector2(8).unwrap(), ndarray_vector2(8));
+        assert_close(raw_backend::vector3(8).unwrap(), ndarray_vector3(8));
     }
 
     #[test]
@@ -944,18 +961,22 @@ mod tests {
             nalgebra_affine2(8, 1),
             candle_affine2(8, 1).unwrap(),
             burn_backend::affine2(8, 1).unwrap(),
+            raw_backend::affine2(8, 1).unwrap(),
             candle_affine3(8, 1).unwrap(),
             burn_backend::affine3(8, 1).unwrap(),
+            raw_backend::affine3(8, 1).unwrap(),
             ndarray_matvec(8, 1),
             faer_matvec(8, 1),
             nalgebra_matvec(8, 1),
             candle_matvec(8, 1).unwrap(),
             burn_backend::matvec(8, 1).unwrap(),
+            raw_backend::matvec(8, 1).unwrap(),
             ndarray_matmul(8, 1),
             faer_matmul(8, 1),
             nalgebra_matmul(8, 1),
             candle_matmul(8, 1).unwrap(),
             burn_backend::matmul(8, 1).unwrap(),
+            raw_backend::matmul(8, 1).unwrap(),
             nalgebra_eigh(8, 1),
         ] {
             assert!(checksum.is_finite());
@@ -975,12 +996,22 @@ mod tests {
         assert_close(burn_backend::affine3(8, 1).unwrap(), ndarray_affine3(8, 1));
         assert_close(burn_backend::matvec(8, 1).unwrap(), ndarray_matvec(8, 1));
         assert_close(burn_backend::matmul(8, 1).unwrap(), ndarray_matmul(8, 1));
+        assert_close(raw_backend::affine2(8, 1).unwrap(), ndarray_affine2(8, 1));
+        assert_close(raw_backend::affine3(8, 1).unwrap(), ndarray_affine3(8, 1));
+        assert_close(raw_backend::matvec(8, 1).unwrap(), ndarray_matvec(8, 1));
+        assert_close(raw_backend::matmul(8, 1).unwrap(), ndarray_matmul(8, 1));
     }
 
     #[test]
     fn candle_does_not_claim_eigendecomposition_support() {
         let error = candle_eigh(8, 1).unwrap_err();
         assert!(error.contains("does not provide a general symmetric eigendecomposition API"));
+    }
+
+    #[test]
+    fn raw_eigh_is_a_finite_jacobi_baseline() {
+        let checksum = raw_backend::eigh(8, 1).unwrap();
+        assert!(checksum.is_finite());
     }
 
     #[test]
@@ -996,6 +1027,7 @@ mod tests {
         assert_close(nalgebra_cosine1024(2), expected);
         assert_close(candle_cosine1024(2).unwrap(), expected);
         assert_close(burn_backend::cosine1024(2).unwrap(), expected);
+        assert_close(raw_backend::cosine1024(2).unwrap(), expected);
     }
 
     fn assert_close(actual: f64, expected: f64) {

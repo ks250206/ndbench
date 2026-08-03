@@ -51,7 +51,7 @@ measure() {
     rm -f "${stats_file}"
 }
 
-for backend in ndarray faer nalgebra candle burn; do
+for backend in ndarray faer nalgebra candle burn raw; do
     measure "${backend}" vector2 --size 1 --iterations "${VECTOR_ITERATIONS}"
     measure "${backend}" vector3 --size 1 --iterations "${VECTOR_ITERATIONS}"
     measure "${backend}" affine2 --size "${POINTS}" --iterations 1

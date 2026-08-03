@@ -1,8 +1,8 @@
 # ndbench Python comparison
 
 This directory is an independent `uv` project that runs the same deterministic
-double-precision calculations as the Rust `ndbench` binary with NumPy and
-CPU-only PyTorch.
+double-precision calculations as the Rust `ndbench` binary with NumPy,
+CPU-only PyTorch, and a dependency-free raw Python baseline.
 
 ## Setup
 
@@ -12,7 +12,7 @@ From this directory:
 uv sync
 ```
 
-The lockfile records the resolved NumPy/PyTorch versions. The project uses a
+The lockfile records the resolved Matplotlib/NumPy/PyTorch versions. The project uses a
 managed Python in the supported range (`>=3.11,<3.14`) because native numerical
 wheel availability varies by Python release.
 
@@ -32,6 +32,9 @@ uv run python ndbench.py \
 
 uv run python ndbench.py \
   --backend pytorch --op eigh --size 128 --iterations 1
+
+uv run python ndbench.py \
+  --backend raw --op matmul --size 256 --iterations 1
 ```
 
 Supported operations are `vector2`, `vector3`, `affine2`, `affine3`, `matvec`,
@@ -41,6 +44,11 @@ operations. `cosine1024` always uses two deterministic `f64` vectors of length
 1024. The `vector2`/`vector3` operations include vector addition, dot product, L2 norm,
 and (for 3D) cross product. `eigh` computes all eigenvalues and eigenvectors of
 the real symmetric matrix with the lower triangle (`UPLO='L'`).
+
+`numpy` and `pytorch` use the corresponding numerical libraries. `raw` (also
+available as `native`) uses only Python lists, explicit loops, and
+`math.sqrt`; it does not import NumPy or PyTorch. Its `eigh` operation is the
+same dependency-free cyclic Jacobi baseline as the Rust `raw` backend.
 
 The deterministic input formula and default values are copied from the Rust
 implementation:
@@ -75,31 +83,33 @@ The generated files are placed in `results/`:
 - `<operation>.md` and `<operation>.json`: hyperfine speed results
 - `memory.tsv`: peak RSS from macOS `/usr/bin/time -l`, or Linux `/usr/bin/time -v`
 
-The following chart is the saved benchmark snapshot from this checkout's
+The following charts are the saved benchmark snapshot from this checkout's
 macOS arm64 environment. It used `HYPERFINE_RUNS=5`, `HYPERFINE_WARMUP=2`, and
 `VECTOR_ITERATIONS=10000`; all other sizes and iteration counts came from the
 script defaults above. Times are medians in milliseconds and are
 environment-dependent, so they should not be treated as portable constants.
 
-The two backends are shown as named line series so that they remain distinct
-in Mermaid; multiple bar series share the same x positions in some renderers.
+The charts are Matplotlib grouped bar charts: backend bars are placed
+side-by-side and identified by a legend. Raw Python is shown separately
+because its `matmul` and `eigh` values require a much larger y-axis.
 
-```mermaid
-xychart-beta
-    title "Python CPU benchmark median (ms)"
-    x-axis ["vector2", "vector3", "affine2", "affine3", "matvec", "matmul", "cosine1024", "eigh"]
-    y-axis "milliseconds" 0 --> 1200
-    line "NumPy" [149.267, 166.950, 146.052, 150.322, 146.186, 145.187, 149.194, 146.630]
-    line "PyTorch" [1063.862, 1142.623, 1040.256, 1041.778, 1053.915, 1030.073, 1032.482, 1016.333]
+![Python CPU speed grouped bar chart](../docs/benchmarks/python-speed.png)
+
+![Raw Python speed grouped bar chart](../docs/benchmarks/python-raw-speed.png)
+
+The raw hyperfine JSON/Markdown and RSS TSV are in `results/`. From the
+repository root, regenerate the PNGs with:
+
+```sh
+uv run --project python python scripts/plot_results.py
 ```
-
-The chart's two series are NumPy and PyTorch in that order. The raw hyperfine
-JSON/Markdown and RSS TSV are in `results/`.
 
 ## Fairness and checksum notes
 
-- Both backends use `float64`, CPU tensors/arrays, the same input formula, and
-  the same operation-level iteration counts as Rust.
+- NumPy and PyTorch use `float64` CPU arrays/tensors; raw Python uses Python
+  `float` values (IEEE-754 double precision on the supported CPython builds).
+  All three use the same input formula and operation-level iteration counts as
+  Rust.
 - NumPy matrix inputs use Fortran order, matching the Rust ndarray benchmark's
   column-major arrays. PyTorch uses its normal CPU tensor layout.
 - NumPy and PyTorch can use different BLAS/LAPACK kernels and reduction order,
@@ -109,5 +119,8 @@ JSON/Markdown and RSS TSV are in `results/`.
   the measurement. This is intentional for this command-level comparison, but
   it means the result answers “end-to-end CLI cost” rather than isolating a
   native vector instruction.
+- Raw Python additionally includes explicit interpreter-level loops and list
+  allocation. It is a baseline for dependency-free portability, not a
+  recommendation for production matrix arithmetic.
 - GPU execution, MPS, CUDA, and PyTorch GPU memory accounting are out of scope
   for this directory.
